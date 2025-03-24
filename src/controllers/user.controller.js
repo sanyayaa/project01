@@ -4,6 +4,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { User } from "../models/users.model.js";
 import {uploadOnCloudinary} from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 const generateAccessAndRefreshTokens = async(userId) => {
     try{
@@ -442,6 +443,68 @@ const getUserChannelProfile = asyncHandler(async (req,res) => {
     )
 })
 
+//nested loopup
+// one look up to see watchHistory(so look up in videos table) -> multiple documents but no owner of video
+// second look up in getting the owner of the of the video which will lead to lookup in the user table 
+const getWatchHistory = asyncHandler(async (req,res) => {
+    const user =  await User.aggregate([
+        {
+            $match : {
+                _id : new mongoose.Types.ObjectId(req.user._id)
+            }
+        },
+        {
+            $lookup : {
+                from : "videos",
+                localField : "watchHistory",
+                foreignField : "_id",
+                as : "watchHistory",
+                pipeline : [
+                    // inside videos table now
+                    {
+                        $lookup : {
+                            from : "users",
+                            localField : "owner",
+                            foreignField : "_id",
+                            as : "owner",
+                            // now i hv got owners data which is basically user so i hv got all the fields but i dont want all the fields so i will project/select some fields i want 
+                            pipeline : [
+                                {
+                                    $project : {
+                                        fullName : 1,
+                                        username :  1,
+                                        avatar : 1
+                                    }
+                                },
+                                // now i have all the required fields data in the 'owner' field but pipeline return the output in the form of array and i want only the 0th index element data
+                                // Now i will improve the sturucture of data in this array so i will return first ele only ab 
+                                {
+                                    $addFields : {
+                                        owner : {
+                                            $first : "$owner"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+        
+    ])
+
+    return res
+    .staus(200)
+    .json(
+        new ApiResponse(
+            200,
+            user[0].watchHistory,
+            "Watch History fetched successfully"
+        )
+    )
+})
+
 export {
     registerUser,
     loginUser,
@@ -449,7 +512,9 @@ export {
     refreshAccessToken,
     changeCurrentPassword,
     getCurrentUser,
+    updateAccountDetails,
     updateUserAvatar,
     updateUserCoverImage,
-    getUserChannelProfile
+    getUserChannelProfile,
+    getWatchHistory,
 }
